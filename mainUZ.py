@@ -1,6 +1,6 @@
 import sqlite3
 
-def create_tables(create_trains_sql=None):
+def create_tables():
     # Підключення до бази даних SQLite
     conn = sqlite3.connect('tickets.db')
     cursor = conn.cursor()
@@ -27,6 +27,7 @@ def create_tables(create_trains_sql=None):
             FOREIGN KEY (train_id) REFERENCES trains (id)
         )
     ''')
+
 
     # Перевірка, чи база даних містить поїзди; якщо ні, то додаємо вигадані поїзди
     cursor.execute('SELECT COUNT(*) FROM trains')
