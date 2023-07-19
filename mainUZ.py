@@ -1,46 +1,49 @@
 import sqlite3
-import os
 
-# Шлях до файлу бази даних
-db_file = 'tickets.db'
+def create_tables(create_trains_sql=None):
+    # Підключення до бази даних SQLite
+    conn = sqlite3.connect('tickets.db')
+    cursor = conn.cursor()
 
-# Перевірка, чи файл бази даних існує
-if os.path.exists(db_file):
-    os.remove(db_file)
-
-# Підключення до бази даних SQLite
-conn = sqlite3.connect(db_file)
-cursor = conn.cursor()
-
-# Зчитування SQL-запитів з текстового файлу та їх виконання
-with open('create_tables.sql', 'r') as sql_file:
-    create_tables_sql = sql_file.read()
-    cursor.executescript(create_tables_sql)
-
-# Збереження змін до бази даних
-conn.commit()
-
-def search_trains(from_station, to_station):
-    # Отримання інформації про поїздки з бази даних
+    # Створення таблиці для зберігання інформації про поїзди
     cursor.execute('''
-        SELECT * FROM trains
-        WHERE from_station = ? AND to_station = ?
-    ''', (from_station, to_station))
-    trains = cursor.fetchall()
+        CREATE TABLE IF NOT EXISTS trains (
+            id INTEGER PRIMARY KEY,
+            from_station TEXT,
+            to_station TEXT,
+            departure_time TEXT,
+            arrival_time TEXT,
+            price REAL,
+            available_seats INTEGER
+        )
+    ''')
 
-    # Обробка та відображення інформації про поїздки
-    for train in trains:
-        print(f"ID поїзда: {train[0]}")
-        print(f"З: {train[1]}")
-        print(f"До: {train[2]}")
-        print(f"Час відправлення: {train[3]}")
-        print(f"Час прибуття: {train[4]}")
-        print(f"Ціна: {train[5]}")
-        print(f"Доступні місця: {train[6]}")
-        print('---------------------------')
+    # Створення таблиці для зберігання інформації про заброньовані квитки
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS booked_tickets (
+            id INTEGER PRIMARY KEY,
+            train_id INTEGER,
+            passenger_name TEXT,
+            FOREIGN KEY (train_id) REFERENCES trains (id)
+        )
+    ''')
+
+    # Перевірка, чи база даних містить поїзди; якщо ні, то додаємо вигадані поїзди
+    cursor.execute('SELECT COUNT(*) FROM trains')
+    count = cursor.fetchone()[0]
+    if count == 0:
+        cursor.executescript(create_trains_sql)
+
+    # Збереження змін до бази даних
+    conn.commit()
+
+    # Закриття підключення до бази даних
+    conn.close()
 
 def show_available_trains():
     # Отримання всіх поїздів з доступними місцями з бази даних і їх відображення
+    conn = sqlite3.connect('tickets.db')
+    cursor = conn.cursor()
     cursor.execute('SELECT * FROM trains WHERE available_seats > 0')
     available_trains = cursor.fetchall()
 
@@ -55,8 +58,13 @@ def show_available_trains():
         print(f"Доступні місця: {train[6]}")
         print('---------------------------')
 
+    # Закриття підключення до бази даних
+    conn.close()
+
 def book_ticket(train_id, passenger_name):
     # Отримання інформації про конкретний поїзд за його ID
+    conn = sqlite3.connect('tickets.db')
+    cursor = conn.cursor()
     cursor.execute('SELECT * FROM trains WHERE id = ?', (train_id,))
     train = cursor.fetchone()
 
@@ -77,53 +85,52 @@ def book_ticket(train_id, passenger_name):
     ''', (train_id,))
 
     cursor.execute('''
-        CREATE TABLE IF NOT EXISTS tickets (
-            id INTEGER PRIMARY KEY,
-            from_station TEXT,
-            to_station TEXT,
-            passenger_name TEXT,
-            ticket_price REAL
-        )
-    ''')
-
-    cursor.execute('''
-        INSERT INTO tickets (from_station, to_station, passenger_name, ticket_price)
-        VALUES (?, ?, ?, ?)
-    ''', (train[1], train[2], passenger_name, train[5]))
+        INSERT INTO booked_tickets (train_id, passenger_name)
+        VALUES (?, ?)
+    ''', (train_id, passenger_name))
 
     conn.commit()
     print('Квиток успішно заброньовано!')
 
+    # Закриття підключення до бази даних
+    conn.close()
+
 def show_tickets():
-    # Отримання всіх квитків з бази даних і їх відображення
-    cursor.execute('SELECT * FROM tickets')
+    # Отримання всіх заброньованих квитків з бази даних і їх відображення
+    conn = sqlite3.connect('tickets.db')
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT trains.from_station, trains.to_station, trains.departure_time, trains.price, booked_tickets.passenger_name
+        FROM trains
+        JOIN booked_tickets ON trains.id = booked_tickets.train_id
+    ''')
     tickets = cursor.fetchall()
 
+    print("Заброньовані квитки:")
     for ticket in tickets:
-        print(f"ID квитка: {ticket[0]}")
-        print(f"З: {ticket[1]}")
-        print(f"До: {ticket[2]}")
-        print(f"Ім'я пасажира: {ticket[3]}")
-        print(f"Ціна: {ticket[4]}")
+        print(f"З: {ticket[0]}")
+        print(f"До: {ticket[1]}")
+        print(f"Час відправлення: {ticket[2]}")
+        print(f"Ціна: {ticket[3]}")
+        print(f"Ім'я пасажира: {ticket[4]}")
         print('---------------------------')
 
-# Виклик функції показу доступних поїздів
-show_available_trains()
+    # Закриття підключення до бази даних
+    conn.close()
 
-# Введення даних користувача
-from_station = input("Введіть станцію відправлення: ")
-to_station = input("Введіть станцію призначення: ")
-passenger_name = input("Введіть ім'я пасажира: ")
+if __name__ == "__main__":
+    create_tables()
+    show_available_trains()
 
-# Виклик функції пошуку поїздок
-search_trains(from_station, to_station)
+    while True:
+        choice = input("Бажаєте забронювати квиток? (Так/Ні): ").strip().lower()
+        if choice == 'так':
+            train_id = input("Введіть ID поїзда для бронювання квитка: ")
+            passenger_name = input("Введіть ім'я пасажира: ")
+            book_ticket(train_id, passenger_name)
+        elif choice == 'ні':
+            break
+        else:
+            print("Будь ласка, введіть 'Так' або 'Ні'.")
 
-# Вибір поїзда та бронювання квитка
-train_id = input("Введіть ID поїзда для бронювання квитка: ")
-book_ticket(train_id, passenger_name)
-
-# Показ заброньованих квитків
-show_tickets()
-
-# Закриття підключення до бази даних
-conn.close()
+    show_tickets()
